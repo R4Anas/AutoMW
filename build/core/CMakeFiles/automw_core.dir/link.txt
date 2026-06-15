@@ -1,0 +1,2 @@
+/usr/bin/ar qc libautomw_core.a CMakeFiles/automw_core.dir/automw_shm.c.o CMakeFiles/automw_core.dir/automw_mq.c.o
+/usr/bin/ranlib libautomw_core.a
