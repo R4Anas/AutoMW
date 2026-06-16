@@ -9,4 +9,7 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall -Wextra -Werror)
 
 add_subdirectory(core)
+add_subdirectory(someip)
 add_subdirectory(demo)
+
+

@@ -2,3 +2,8 @@ foreach(target publisher subscriber server client)
     add_executable(${target} ${target}.c)
     target_link_libraries(${target} PRIVATE automw_core)
 endforeach()
+
+foreach(target someip_server someip_client)
+    add_executable(${target} ${target}.c)
+    target_link_libraries(${target} PRIVATE automw_someip)
+endforeach()
