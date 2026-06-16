@@ -1,1 +1,0 @@
-/usr/bin/cc CMakeFiles/subscriber.dir/subscriber.c.o -o subscriber  ../core/libautomw_core.a -lrt -lpthread 
