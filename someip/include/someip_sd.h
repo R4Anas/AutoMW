@@ -77,21 +77,24 @@ typedef struct __attribute__((packed)) {
 #define SD_TTL_STOP                 0x000000
 
 /* API */
-int  someip_sd_create_socket  (void);
-int  someip_sd_send_offer     (int sock,
-                               uint16_t service_id,
-                               uint32_t server_ip,
-                               uint16_t server_port);
-int  someip_sd_send_find      (int sock,
-                               uint16_t service_id);
-int  someip_sd_send_subscribe (int sock,
-                               uint16_t service_id,
-                               uint32_t client_ip,
-                               uint16_t client_port);
-int  someip_sd_receive        (int sock,
-                               uint8_t *out_type,
-                               uint16_t *out_service_id,
-                               uint32_t *out_ip,
-                               uint16_t *out_port);
+int  someip_sd_create_socket      (void);
+int  someip_sd_send_offer         (int sock,
+                                   uint16_t service_id,
+                                   uint32_t server_ip,
+                                   uint16_t server_port);
+int  someip_sd_send_find          (int sock,
+                                   uint16_t service_id);
+int  someip_sd_send_subscribe     (int sock,
+                                   uint16_t service_id,
+                                   uint32_t client_ip,
+                                   uint16_t client_event_port);
+int  someip_sd_send_subscribe_ack (int sock,
+                                   uint16_t service_id,
+                                   const char *client_ip);
+int  someip_sd_receive            (int sock,
+                                   uint8_t *out_type,
+                                   uint16_t *out_service_id,
+                                   uint32_t *out_ip,
+                                   uint16_t *out_port);
 
 #endif /* SOMEIP_SD_H */

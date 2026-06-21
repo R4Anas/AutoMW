@@ -263,6 +263,161 @@ int someip_sd_send_find(int sock, uint16_t service_id) {
 }
 
 /*
+ * someip_sd_send_subscribe()
+ *
+ * Client tells the server: "Send event notifications to MY_IP:MY_EVENT_PORT"
+ *
+ * Key difference from FindService:
+ * FindService asks "who provides service X?" — no endpoint option.
+ * Subscribe says "I want EVENTS for service X, push them HERE" — endpoint option
+ * carries the client's IP and the port where it's listening for notifications.
+ *
+ * The server receives this, records the endpoint, then unicasts NOTIFICATION
+ * messages directly to client_ip:client_event_port — not back to multicast.
+ *
+ * AUTOSAR parallel:
+ * Adaptive AUTOSAR ara::com subscribe() on an event field.
+ * Classic AUTOSAR has no equivalent — event availability is static ARXML.
+ */
+int someip_sd_send_subscribe(int sock,
+                              uint16_t service_id,
+                              uint32_t client_ip,
+                              uint16_t client_event_port)
+{
+    uint8_t payload[64];
+    memset(payload, 0, sizeof(payload));
+    size_t offset = 0;
+
+    payload[offset++] = SOMEIP_SD_FLAG_REBOOT | SOMEIP_SD_FLAG_UNICAST;
+    payload[offset++] = 0x00;
+    payload[offset++] = 0x00;
+    payload[offset++] = 0x00;
+
+    /* One SUBSCRIBE entry */
+    uint32_t entries_len = htonl(sizeof(someip_sd_entry_t));
+    memcpy(payload + offset, &entries_len, 4); offset += 4;
+
+    someip_sd_entry_t entry = {0};
+    entry.type         = SOMEIP_SD_ENTRY_SUBSCRIBE;
+    entry.index_first  = 0x00;
+    entry.index_second = 0x00;
+    entry.num_options  = 0x01;   /* one IPv4 option: where to push events */
+    entry.service_id   = htons(service_id);
+    entry.instance_id  = htons(0x0001);
+    entry.major_ver    = 0x01;
+    /* TTL = 3 seconds — client must re-subscribe before it expires */
+    entry.ttl[0] = 0x00;
+    entry.ttl[1] = 0x00;
+    entry.ttl[2] = 0x03;
+    entry.minor_ver    = htonl(0x00000001);
+
+    memcpy(payload + offset, &entry, sizeof(entry));
+    offset += sizeof(entry);
+
+    /* IPv4 endpoint option — this is where the server should push notifications */
+    uint32_t options_len = htonl(sizeof(someip_sd_option_ipv4_t));
+    memcpy(payload + offset, &options_len, 4); offset += 4;
+
+    someip_sd_option_ipv4_t opt = {0};
+    opt.length     = htons(0x0009);
+    opt.type       = 0x04;
+    opt.ip_address = client_ip;               /* network byte order from inet_pton */
+    opt.protocol   = SOMEIP_SD_PROTO_UDP;
+    opt.port       = htons(client_event_port);
+
+    memcpy(payload + offset, &opt, sizeof(opt));
+    offset += sizeof(opt);
+
+    someip_msg_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.header.service_id  = SOMEIP_SD_SERVICE_ID;
+    msg.header.method_id   = SOMEIP_SD_METHOD_ID;
+    msg.header.length      = 8 + offset;
+    msg.header.client_id   = SOMEIP_SD_CLIENT_ID;
+    msg.header.session_id  = 0x0001;
+    msg.header.proto_ver   = SOMEIP_PROTO_VER;
+    msg.header.iface_ver   = SOMEIP_IFACE_VER;
+    msg.header.msg_type    = SOMEIP_MSG_NOTIFICATION;
+    msg.header.return_code = SOMEIP_RET_OK;
+    memcpy(msg.payload, payload, offset);
+    msg.payload_len = offset;
+
+    printf("[someip_sd] sending Subscribe for 0x%04X — events → port %u\n",
+           service_id, client_event_port);
+
+    return someip_send(sock, SOMEIP_SD_MULTICAST, SOMEIP_SD_PORT, &msg);
+}
+
+/*
+ * someip_sd_send_subscribe_ack()
+ *
+ * Server confirms the subscription by sending SubscribeAck unicast back
+ * to the subscriber's SD port (30490).
+ *
+ * Unlike Subscribe (multicast), the Ack is unicast — only the subscribing
+ * client needs to know its subscription was accepted.
+ *
+ * No IPv4 option in the Ack — server is not advertising an endpoint,
+ * it's just confirming "I received your Subscribe and will push events".
+ * A non-zero TTL in the Ack means "subscription accepted for this duration".
+ */
+int someip_sd_send_subscribe_ack(int sock,
+                                  uint16_t service_id,
+                                  const char *client_ip)
+{
+    uint8_t payload[40];
+    memset(payload, 0, sizeof(payload));
+    size_t offset = 0;
+
+    payload[offset++] = SOMEIP_SD_FLAG_REBOOT | SOMEIP_SD_FLAG_UNICAST;
+    payload[offset++] = 0x00;
+    payload[offset++] = 0x00;
+    payload[offset++] = 0x00;
+
+    uint32_t entries_len = htonl(sizeof(someip_sd_entry_t));
+    memcpy(payload + offset, &entries_len, 4); offset += 4;
+
+    someip_sd_entry_t entry = {0};
+    entry.type         = SOMEIP_SD_ENTRY_SUBSCRIBE_ACK;
+    entry.index_first  = 0x00;
+    entry.index_second = 0x00;
+    entry.num_options  = 0x00;   /* no options — just confirming */
+    entry.service_id   = htons(service_id);
+    entry.instance_id  = htons(0x0001);
+    entry.major_ver    = 0x01;
+    entry.ttl[0] = 0x00;
+    entry.ttl[1] = 0x00;
+    entry.ttl[2] = 0x03;         /* grant TTL = 3 seconds */
+    entry.minor_ver    = htonl(0x00000001);
+
+    memcpy(payload + offset, &entry, sizeof(entry));
+    offset += sizeof(entry);
+
+    uint32_t options_len = htonl(0);
+    memcpy(payload + offset, &options_len, 4); offset += 4;
+
+    someip_msg_t msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.header.service_id  = SOMEIP_SD_SERVICE_ID;
+    msg.header.method_id   = SOMEIP_SD_METHOD_ID;
+    msg.header.length      = 8 + offset;
+    msg.header.client_id   = SOMEIP_SD_CLIENT_ID;
+    msg.header.session_id  = 0x0001;
+    msg.header.proto_ver   = SOMEIP_PROTO_VER;
+    msg.header.iface_ver   = SOMEIP_IFACE_VER;
+    msg.header.msg_type    = SOMEIP_MSG_NOTIFICATION;
+    msg.header.return_code = SOMEIP_RET_OK;
+    memcpy(msg.payload, payload, offset);
+    msg.payload_len = offset;
+
+    printf("[someip_sd] sending SubscribeAck for 0x%04X to %s\n",
+           service_id, client_ip);
+
+    /* Unicast directly to subscriber's SD port — not multicast */
+    return someip_send(sock, client_ip, SOMEIP_SD_PORT, &msg);
+}
+
+/*
  * someip_sd_receive()
  *
  * Receives and parses one SD message.
